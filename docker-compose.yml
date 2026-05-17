@@ -1,0 +1,116 @@
+services:
+  # PostgreSQL database
+  postgres:
+    image: postgres:15
+    container_name: hermes-postgres
+    environment:
+      POSTGRES_USER: hermes
+      POSTGRES_PASSWORD: hermespass
+      POSTGRES_DB: hermes
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    # Not exposed on host — internal only for security
+    networks:
+      - hermes-net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U hermes"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # Zookeeper — required by Kafka for broker coordination
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.5.0
+    container_name: hermes-zookeeper
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    networks:
+      - hermes-net
+
+  # Kafka — durable task queue
+  kafka:
+    image: confluentinc/cp-kafka:7.5.0
+    container_name: hermes-kafka
+    depends_on:
+      - zookeeper
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+    networks:
+      - hermes-net
+
+  # OpenTelemetry Collector — receives traces and metrics from all services
+  otel-collector:
+    image: otel/opentelemetry-collector:latest
+    container_name: hermes-otel-collector
+    volumes:
+      - ./monitoring/otel-collector-config.yml:/etc/otel-collector-config.yml
+    command: ["--config=/etc/otel-collector-config.yml"]
+    networks:
+      - hermes-net
+
+  # Jaeger — distributed trace UI
+  jaeger:
+    image: jaegertracing/all-in-one:latest
+    container_name: hermes-jaeger
+    ports:
+      - "16686:16686" # Jaeger UI
+    networks:
+      - hermes-net
+
+  # Prometheus — metrics storage
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: hermes-prometheus
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml
+    ports:
+      - "9090:9090"
+    networks:
+      - hermes-net
+
+  # Grafana — metrics dashboards
+  grafana:
+    image: grafana/grafana:latest
+    container_name: hermes-grafana
+    ports:
+      - "3001:3000"
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning
+    networks:
+      - hermes-net
+
+  # Coordinator — main FastAPI + gRPC service
+  coordinator:
+    build: ./coordinator
+    container_name: hermes-coordinator
+    ports:
+      - "8080:8000" # REST API
+      - "50051:50051" # gRPC
+    env_file:
+      - .env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_started
+    networks:
+      - hermes-net
+
+# Named volumes — data persists across container restarts
+volumes:
+  postgres_data:
+  grafana_data:
+
+# Internal Docker network — services communicate by container name
+networks:
+  hermes-net:
+    driver: bridge
