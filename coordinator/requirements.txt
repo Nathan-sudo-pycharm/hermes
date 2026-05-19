@@ -18,3 +18,8 @@ pytest
 pytest-asyncio
 httpx
 alembic
+email-validator
+bcrypt==4.0.1
+
+
+eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJ0ZXN0QGhlcm1lcy5kZXYiLCJleHAiOjE3NzkxNzM1MDF9.Dvyb1d-x3bFHThZGeJmCHDmu-f1mtN6-tRRiTlCLcfk

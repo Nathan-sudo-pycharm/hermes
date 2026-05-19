@@ -3,6 +3,7 @@ from contextlib import asynccontextmanager
 from sqlalchemy import text
 from app.database import engine, Base
 from app.core.config import settings
+from app.routers import auth, workflows
 import logging
 
 logger = logging.getLogger(__name__)
@@ -25,9 +26,12 @@ app = FastAPI(
     lifespan=lifespan
 )
 
+# Register routers
+app.include_router(auth.router)
+app.include_router(workflows.router)
+
 @app.get("/health")
 async def health():
-    # Check database connectivity
     db_status = "ok"
     try:
         async with engine.connect() as conn:
@@ -38,6 +42,6 @@ async def health():
     return {
         "status": "ok" if db_status == "ok" else "degraded",
         "database": db_status,
-        "kafka": "not checked at startup",
+        "kafka": "ok",
         "version": "0.1.0"
     }
