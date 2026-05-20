@@ -1,0 +1,11 @@
+fastapi
+uvicorn[standard]
+confluent-kafka
+grpcio
+grpcio-tools
+opentelemetry-sdk
+opentelemetry-exporter-otlp
+structlog
+python-dotenv
+pydantic-settings
+bcrypt==4.0.1

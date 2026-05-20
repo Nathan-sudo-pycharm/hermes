@@ -9,7 +9,6 @@ from sqlalchemy import select
 from app.database import get_db
 from app.models import User
 from app.core.config import settings
-
 # CryptContext handles password hashing using bcrypt.
 # We never store plain text passwords — only the hash.
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")

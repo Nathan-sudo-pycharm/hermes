@@ -9,7 +9,6 @@ services:
       POSTGRES_DB: hermes
     volumes:
       - postgres_data:/var/lib/postgresql/data
-    # Not exposed on host — internal only for security
     networks:
       - hermes-net
     healthcheck:
@@ -46,7 +45,7 @@ services:
     networks:
       - hermes-net
 
-  # OpenTelemetry Collector — receives traces and metrics from all services
+  # OpenTelemetry Collector
   otel-collector:
     image: otel/opentelemetry-collector:latest
     container_name: hermes-otel-collector
@@ -61,7 +60,7 @@ services:
     image: jaegertracing/all-in-one:latest
     container_name: hermes-jaeger
     ports:
-      - "16686:16686" # Jaeger UI
+      - "16686:16686"
     networks:
       - hermes-net
 
@@ -93,8 +92,8 @@ services:
     build: ./coordinator
     container_name: hermes-coordinator
     ports:
-      - "8080:8000" # REST API
-      - "50051:50051" # gRPC
+      - "8080:8000"
+      - "50051:50051"
     env_file:
       - .env
     depends_on:
@@ -105,12 +104,72 @@ services:
     networks:
       - hermes-net
 
-# Named volumes — data persists across container restarts
+  # Worker A — fast worker, never fails
+  worker-a:
+    build: ./worker
+    container_name: hermes-worker-a
+    ports:
+      - "8001:8001"
+    environment:
+      WORKER_ID: worker-a
+      WORKER_FAILURE_RATE: "0.0"
+      WORKER_TASK_DURATION: "0.3"
+      KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      KAFKA_TASKS_TOPIC: hermes.tasks
+      COORDINATOR_GRPC_ADDRESS: coordinator:50051
+      ENABLE_DEBUG_ENDPOINTS: "true"
+    depends_on:
+      - kafka
+      - coordinator
+    networks:
+      - hermes-net
+
+  # Worker B — slow worker, never fails
+  worker-b:
+    build: ./worker
+    container_name: hermes-worker-b
+    ports:
+      - "8002:8001"
+    environment:
+      WORKER_ID: worker-b
+      WORKER_FAILURE_RATE: "0.0"
+      WORKER_TASK_DURATION: "4.0"
+      KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      KAFKA_TASKS_TOPIC: hermes.tasks
+      COORDINATOR_GRPC_ADDRESS: coordinator:50051
+      ENABLE_DEBUG_ENDPOINTS: "true"
+    depends_on:
+      - kafka
+      - coordinator
+    networks:
+      - hermes-net
+
+  # Worker C — flaky worker, 40% failure rate
+  worker-c:
+    build: ./worker
+    container_name: hermes-worker-c
+    ports:
+      - "8003:8001"
+    environment:
+      WORKER_ID: worker-c
+      WORKER_FAILURE_RATE: "0.4"
+      WORKER_TASK_DURATION: "1.5"
+      KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      KAFKA_TASKS_TOPIC: hermes.tasks
+      COORDINATOR_GRPC_ADDRESS: coordinator:50051
+      ENABLE_DEBUG_ENDPOINTS: "true"
+    depends_on:
+      - kafka
+      - coordinator
+    networks:
+      - hermes-net
+
+# Named volumes
 volumes:
   postgres_data:
   grafana_data:
 
-# Internal Docker network — services communicate by container name
+# Internal Docker network
 networks:
   hermes-net:
     driver: bridge

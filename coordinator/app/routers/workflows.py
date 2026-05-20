@@ -3,7 +3,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from typing import List
 from app.database import get_db
-from app.models import User, WorkflowDefinition, WorkflowExecution
+from app.models import User, WorkflowDefinition, WorkflowExecution, TaskExecution
 from app.schemas import (
     WorkflowDefinitionCreate,
     WorkflowDefinitionResponse,
@@ -11,6 +11,7 @@ from app.schemas import (
     WorkflowExecutionResponse
 )
 from app.auth import get_current_user
+from app.kafka.producer import publish_task
 import uuid
 
 router = APIRouter(prefix="/workflows", tags=["workflows"])
@@ -22,12 +23,6 @@ async def create_definition(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    """
-    Register a new workflow definition.
-    Requires JWT authentication.
-    Steps are stored as JSONB in the database.
-    """
-    # Check if a definition with this name already exists
     result = await db.execute(
         select(WorkflowDefinition).where(WorkflowDefinition.name == body.name)
     )
@@ -38,7 +33,6 @@ async def create_definition(
             detail=f"Workflow definition '{body.name}' already exists"
         )
 
-    # Convert Pydantic step models to plain dicts for JSONB storage
     definition = WorkflowDefinition(
         name=body.name,
         steps=[step.model_dump() for step in body.steps]
@@ -54,10 +48,6 @@ async def list_definitions(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    """
-    List all registered workflow definitions.
-    Requires JWT authentication.
-    """
     result = await db.execute(select(WorkflowDefinition))
     definitions = result.scalars().all()
     return definitions
@@ -69,11 +59,6 @@ async def execute_workflow(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    """
-    Submit a workflow for execution.
-    Creates a workflow execution record in PENDING state.
-    Kafka publishing will be added on Day 5.
-    """
     # Verify the workflow definition exists
     result = await db.execute(
         select(WorkflowDefinition).where(WorkflowDefinition.id == body.definition_id)
@@ -85,15 +70,53 @@ async def execute_workflow(
             detail="Workflow definition not found"
         )
 
-    # Create execution record
+    # Create workflow execution record
     execution = WorkflowExecution(
         definition_id=body.definition_id,
-        state="PENDING",
+        state="RUNNING",
         input_payload=body.input_payload,
     )
     db.add(execution)
+    await db.flush()  # flush to get the execution ID without committing
+
+    # Get the first step from the definition
+    first_step = definition.steps[0]
+    step_index = 0
+    attempt_number = 1
+
+    # Create task execution record for the first step
+    idempotency_key = f"{execution.id}:{step_index}:{attempt_number}"
+    task = TaskExecution(
+        execution_id=execution.id,
+        step_name=first_step["name"],
+        step_index=step_index,
+        state="QUEUED",
+        idempotency_key=idempotency_key,
+        attempt_number=attempt_number,
+        max_attempts=first_step.get("max_retries", 3),
+    )
+    db.add(task)
     await db.commit()
     await db.refresh(execution)
+    await db.refresh(task)
+
+    # Build the Kafka message
+    task_message = {
+        "task_execution_id": str(task.id),
+        "execution_id": str(execution.id),
+        "step_name": first_step["name"],
+        "step_index": step_index,
+        "idempotency_key": idempotency_key,
+        "timeout_seconds": first_step.get("timeout_seconds", 10),
+        "max_retries": first_step.get("max_retries", 3),
+        "attempt_number": attempt_number,
+        "input_payload": body.input_payload or {},
+        "traceparent": None,
+    }
+
+    # Publish task to Kafka
+    await publish_task(task_message)
+
     return execution
 
 
@@ -102,10 +125,6 @@ async def list_executions(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    """
-    List all workflow executions.
-    Requires JWT authentication.
-    """
     result = await db.execute(select(WorkflowExecution))
     executions = result.scalars().all()
     return executions
@@ -117,10 +136,6 @@ async def get_execution(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    """
-    Get details of a specific workflow execution.
-    Requires JWT authentication.
-    """
     result = await db.execute(
         select(WorkflowExecution).where(WorkflowExecution.id == execution_id)
     )

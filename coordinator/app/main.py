@@ -10,12 +10,10 @@ logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # On startup — create all tables if they don't exist
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
     logger.info("Database tables created")
     yield
-    # On shutdown — dispose the connection pool cleanly
     await engine.dispose()
     logger.info("Database connection closed")
 
@@ -26,7 +24,6 @@ app = FastAPI(
     lifespan=lifespan
 )
 
-# Register routers
 app.include_router(auth.router)
 app.include_router(workflows.router)
 
