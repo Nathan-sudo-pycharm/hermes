@@ -1,0 +1,38 @@
+syntax = "proto3";
+
+package hermes;
+
+// The Coordinator runs this gRPC server.
+// Workers call these methods after executing a task.
+service TaskService {
+    rpc ReportResult(TaskResult) returns (WorkerAck);
+    rpc Heartbeat(HeartbeatRequest) returns (HeartbeatAck);
+}
+
+// Sent by Worker → Coordinator after a task finishes (success or failure)
+message TaskResult {
+    string task_execution_id = 1;
+    string worker_id         = 2;
+    bool   success           = 3;
+    string error_msg         = 4;
+    int64  duration_ms       = 5;
+    string trace_id          = 6;
+    string span_id           = 7;
+}
+
+// Coordinator's reply to the worker — simple acknowledgement
+message WorkerAck {
+    bool received = 1;
+}
+
+// Sent by Worker → Coordinator periodically to say "I'm alive"
+message HeartbeatRequest {
+    string worker_id    = 1;
+    string state        = 2;   // "idle" or "busy"
+    int32  active_tasks = 3;
+}
+
+// Coordinator's reply to heartbeat
+message HeartbeatAck {
+    bool accepted = 1;
+}
