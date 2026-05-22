@@ -20,10 +20,6 @@ async def report_result(
     error_msg: str = "",
     duration_ms: int = 0
 ) -> bool:
-    """
-    Calls the Coordinator gRPC ReportResult.
-    Returns True if the Coordinator acknowledged receipt.
-    """
     try:
         async with grpc.aio.insecure_channel(settings.COORDINATOR_GRPC_ADDRESS) as channel:
             stub = hermes_pb2_grpc.TaskServiceStub(channel)
@@ -38,7 +34,23 @@ async def report_result(
             )
             logger.info(f"ReportResult ack: received={response.received}")
             return response.received
-
     except Exception as e:
         logger.error(f"gRPC ReportResult failed: {e}")
+        return False
+
+
+async def send_heartbeat(state: str = "idle", active_tasks: int = 0) -> bool:
+    try:
+        async with grpc.aio.insecure_channel(settings.COORDINATOR_GRPC_ADDRESS) as channel:
+            stub = hermes_pb2_grpc.TaskServiceStub(channel)
+            response = await stub.Heartbeat(
+                hermes_pb2.HeartbeatRequest(
+                    worker_id=settings.WORKER_ID,
+                    state=state,
+                    active_tasks=active_tasks,
+                )
+            )
+            return response.accepted
+    except Exception as e:
+        logger.error(f"gRPC Heartbeat failed: {e}")
         return False

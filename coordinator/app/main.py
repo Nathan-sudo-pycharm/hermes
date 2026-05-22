@@ -2,9 +2,8 @@ from fastapi import FastAPI
 from contextlib import asynccontextmanager
 from sqlalchemy import text, select
 from app.database import engine, Base, AsyncSessionLocal
-from app.core.config import settings
 from app.routers import auth, workflows
-from app.routers import dlq
+from app.routers import dlq, workers
 from app.grpc_server.server import start_grpc_server
 from app.retry.scheduler import retry_scheduler
 from app.models import Worker
@@ -38,10 +37,8 @@ async def lifespan(app: FastAPI):
     logger.info("Database tables created")
 
     await seed_workers()
-
-    grpc_server = await start_grpc_server()
-
-    scheduler_task = asyncio.create_task(retry_scheduler())
+    grpc_server      = await start_grpc_server()
+    scheduler_task   = asyncio.create_task(retry_scheduler())
 
     yield
 
@@ -61,6 +58,7 @@ app = FastAPI(
 app.include_router(auth.router)
 app.include_router(workflows.router)
 app.include_router(dlq.router)
+app.include_router(workers.router)
 
 
 @app.get("/health")
@@ -72,7 +70,7 @@ async def health():
     except Exception as e:
         db_status = f"error: {str(e)}"
     return {
-        "status": "ok" if db_status == "ok" else "degraded",
+        "status":   "ok" if db_status == "ok" else "degraded",
         "database": db_status,
-        "version": "0.1.0"
+        "version":  "0.1.0"
     }

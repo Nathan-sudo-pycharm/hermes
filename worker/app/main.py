@@ -10,15 +10,22 @@ logger = logging.getLogger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     from app.kafka.consumer import start_consumer
-    task = asyncio.create_task(start_consumer())
+    from app.heartbeat import heartbeat_loop
+
+    consumer_task  = asyncio.create_task(start_consumer())
+    heartbeat_task = asyncio.create_task(heartbeat_loop())
     logger.info("Kafka consumer started")
+    logger.info("Heartbeat loop started")
+
     yield
-    task.cancel()
+
+    consumer_task.cancel()
+    heartbeat_task.cancel()
     try:
-        await task
+        await asyncio.gather(consumer_task, heartbeat_task)
     except asyncio.CancelledError:
         pass
-    logger.info("Kafka consumer stopped")
+    logger.info("Worker shutdown complete")
 
 
 app = FastAPI(
@@ -32,9 +39,9 @@ app = FastAPI(
 async def health():
     from app.core.config import settings
     return {
-        "status": "ok",
-        "worker_id": settings.WORKER_ID,
-        "failure_rate": settings.WORKER_FAILURE_RATE,
+        "status":        "ok",
+        "worker_id":     settings.WORKER_ID,
+        "failure_rate":  settings.WORKER_FAILURE_RATE,
         "task_duration": settings.WORKER_TASK_DURATION,
     }
 
