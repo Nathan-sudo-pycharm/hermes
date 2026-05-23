@@ -12,6 +12,8 @@ from app.schemas import (
 )
 from app.auth import get_current_user
 from app.kafka.producer import publish_task
+from app.core.telemetry import get_tracer
+from opentelemetry.propagate import inject
 import uuid
 
 router = APIRouter(prefix="/workflows", tags=["workflows"])
@@ -32,7 +34,6 @@ async def create_definition(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Workflow definition '{body.name}' already exists"
         )
-
     definition = WorkflowDefinition(
         name=body.name,
         steps=[step.model_dump() for step in body.steps]
@@ -59,7 +60,6 @@ async def execute_workflow(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    # Verify the workflow definition exists
     result = await db.execute(
         select(WorkflowDefinition).where(WorkflowDefinition.id == body.definition_id)
     )
@@ -70,53 +70,59 @@ async def execute_workflow(
             detail="Workflow definition not found"
         )
 
-    # Create workflow execution record
     execution = WorkflowExecution(
         definition_id=body.definition_id,
         state="RUNNING",
         input_payload=body.input_payload,
     )
     db.add(execution)
-    await db.flush()  # flush to get the execution ID without committing
+    await db.flush()
 
-    # Get the first step from the definition
-    first_step = definition.steps[0]
-    step_index = 0
+    first_step     = definition.steps[0]
+    step_index     = 0
     attempt_number = 1
-
-    # Create task execution record for the first step
     idempotency_key = f"{execution.id}:{step_index}:{attempt_number}"
+
     task = TaskExecution(
-        execution_id=execution.id,
-        step_name=first_step["name"],
-        step_index=step_index,
-        state="QUEUED",
-        idempotency_key=idempotency_key,
-        attempt_number=attempt_number,
-        max_attempts=first_step.get("max_retries", 3),
+        execution_id    = execution.id,
+        step_name       = first_step["name"],
+        step_index      = step_index,
+        state           = "QUEUED",
+        idempotency_key = idempotency_key,
+        attempt_number  = attempt_number,
+        max_attempts    = first_step.get("max_retries", 3),
     )
     db.add(task)
     await db.commit()
     await db.refresh(execution)
     await db.refresh(task)
 
-    # Build the Kafka message
+    # --- OTel: create a span and inject trace context ---
+    tracer  = get_tracer()
+    carrier = {}
+    with tracer.start_as_current_span("execute_workflow") as span:
+        span.set_attribute("workflow.execution_id", str(execution.id))
+        span.set_attribute("workflow.definition",   definition.name)
+        span.set_attribute("task.step_name",        first_step["name"])
+
+        # Inject current trace context into carrier dict
+        # This produces {"traceparent": "00-<trace_id>-<span_id>-01"}
+        inject(carrier)
+
     task_message = {
         "task_execution_id": str(task.id),
-        "execution_id": str(execution.id),
-        "step_name": first_step["name"],
-        "step_index": step_index,
-        "idempotency_key": idempotency_key,
-        "timeout_seconds": first_step.get("timeout_seconds", 10),
-        "max_retries": first_step.get("max_retries", 3),
-        "attempt_number": attempt_number,
-        "input_payload": body.input_payload or {},
-        "traceparent": None,
+        "execution_id":      str(execution.id),
+        "step_name":         first_step["name"],
+        "step_index":        step_index,
+        "idempotency_key":   idempotency_key,
+        "timeout_seconds":   first_step.get("timeout_seconds", 10),
+        "max_retries":       first_step.get("max_retries", 3),
+        "attempt_number":    attempt_number,
+        "input_payload":     body.input_payload or {},
+        "traceparent":       carrier.get("traceparent"),
     }
 
-    # Publish task to Kafka
     await publish_task(task_message)
-
     return execution
 
 

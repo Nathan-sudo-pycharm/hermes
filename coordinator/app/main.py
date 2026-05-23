@@ -7,10 +7,15 @@ from app.routers import dlq, workers
 from app.grpc_server.server import start_grpc_server
 from app.retry.scheduler import retry_scheduler
 from app.models import Worker
+from app.core.telemetry import setup_telemetry
+from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 import asyncio
 import logging
 
 logger = logging.getLogger(__name__)
+
+# Initialise tracing before app creation
+setup_telemetry()
 
 
 async def seed_workers():
@@ -37,8 +42,8 @@ async def lifespan(app: FastAPI):
     logger.info("Database tables created")
 
     await seed_workers()
-    grpc_server      = await start_grpc_server()
-    scheduler_task   = asyncio.create_task(retry_scheduler())
+    grpc_server    = await start_grpc_server()
+    scheduler_task = asyncio.create_task(retry_scheduler())
 
     yield
 
@@ -54,6 +59,9 @@ app = FastAPI(
     version="0.1.0",
     lifespan=lifespan
 )
+
+# Instrument FastAPI — auto-creates spans for every HTTP request
+FastAPIInstrumentor.instrument_app(app)
 
 app.include_router(auth.router)
 app.include_router(workflows.router)

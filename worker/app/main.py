@@ -1,10 +1,13 @@
 from fastapi import FastAPI
 from contextlib import asynccontextmanager
+from app.core.telemetry import setup_telemetry
 import asyncio
 import logging
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+setup_telemetry()
 
 
 @asynccontextmanager
