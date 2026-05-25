@@ -14,6 +14,8 @@ from app.auth import get_current_user
 from app.kafka.producer import publish_task
 from app.core.telemetry import get_tracer
 from opentelemetry.propagate import inject
+from app.core.metrics import workflow_executions_total
+
 import uuid
 
 router = APIRouter(prefix="/workflows", tags=["workflows"])
@@ -123,6 +125,7 @@ async def execute_workflow(
     }
 
     await publish_task(task_message)
+    workflow_executions_total.inc()
     return execution
 
 

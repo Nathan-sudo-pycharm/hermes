@@ -12,8 +12,15 @@ from sqlalchemy import select
 from app.database import AsyncSessionLocal
 from app.models import TaskExecution, WorkflowExecution, Worker
 from app.circuit_breaker.engine import record_failure, record_success, check_transition
+from app.core.metrics import (
+    tasks_total,
+    task_duration_seconds,
+    circuit_breaker_state,
+)
 
 logger = logging.getLogger(__name__)
+
+CB_STATE_MAP = {"CLOSED": 0, "OPEN": 1, "HALF_OPEN": 2}
 
 
 def compute_backoff(attempt_number: int) -> int:
@@ -48,6 +55,7 @@ class TaskServiceHandler(hermes_pb2_grpc.TaskServiceServicer):
             if success:
                 task.state = "SUCCESS"
                 await record_success(session, worker_id)
+                tasks_total.labels(worker_id=worker_id, status="success").inc()
 
             else:
                 task.state     = "FAILED"
@@ -71,10 +79,12 @@ class TaskServiceHandler(hermes_pb2_grpc.TaskServiceServicer):
                         queued_at       = now,
                     )
                     session.add(retry_task)
+                    tasks_total.labels(worker_id=worker_id, status="failed").inc()
                     logger.info(f"Retry {next_attempt}/{task.max_attempts} in {delay}s")
 
                 else:
                     task.state = "DEAD_LETTERED"
+                    tasks_total.labels(worker_id=worker_id, status="dead_lettered").inc()
                     logger.warning(f"Task {task_id} DEAD_LETTERED")
 
                     from app.kafka.producer import publish_task
@@ -91,6 +101,12 @@ class TaskServiceHandler(hermes_pb2_grpc.TaskServiceServicer):
                         topic="hermes.tasks.dlq"
                     )
 
+            # Record task duration
+            if request.duration_ms:
+                task_duration_seconds.labels(
+                    worker_id=worker_id
+                ).observe(request.duration_ms / 1000)
+
             # Workflow state
             all_tasks_result = await session.execute(
                 select(TaskExecution).where(
@@ -101,7 +117,9 @@ class TaskServiceHandler(hermes_pb2_grpc.TaskServiceServicer):
             states    = [t.state for t in all_tasks]
 
             wf_result = await session.execute(
-                select(WorkflowExecution).where(WorkflowExecution.id == task.execution_id)
+                select(WorkflowExecution).where(
+                    WorkflowExecution.id == task.execution_id
+                )
             )
             workflow = wf_result.scalar_one_or_none()
 
@@ -116,6 +134,19 @@ class TaskServiceHandler(hermes_pb2_grpc.TaskServiceServicer):
                 else:
                     workflow.state = "RUNNING"
 
+            # Update circuit breaker gauge
+            from app.models import CircuitBreakerState
+            cb_result = await session.execute(
+                select(CircuitBreakerState).where(
+                    CircuitBreakerState.worker_id == worker_id
+                )
+            )
+            cb = cb_result.scalar_one_or_none()
+            if cb:
+                circuit_breaker_state.labels(worker_id=worker_id).set(
+                    CB_STATE_MAP.get(cb.state, 0)
+                )
+
             await session.commit()
 
         return hermes_pb2.WorkerAck(received=True)
@@ -126,23 +157,21 @@ class TaskServiceHandler(hermes_pb2_grpc.TaskServiceServicer):
         logger.info(f"Heartbeat: worker={worker_id} state={request.state}")
 
         async with AsyncSessionLocal() as session:
-            # Upsert worker record
             result = await session.execute(
                 select(Worker).where(Worker.id == worker_id)
             )
             worker = result.scalar_one_or_none()
+            now    = datetime.now(timezone.utc)
 
-            now = datetime.now(timezone.utc)
             if worker:
                 worker.last_heartbeat_at = now
             else:
                 session.add(Worker(
-                    id               = worker_id,
-                    grpc_address     = f"{worker_id}:50052",
+                    id                = worker_id,
+                    grpc_address      = f"{worker_id}:50052",
                     last_heartbeat_at = now,
                 ))
 
-            # Check if OPEN circuit should transition to HALF_OPEN
             await check_transition(session, worker_id)
             await session.commit()
 

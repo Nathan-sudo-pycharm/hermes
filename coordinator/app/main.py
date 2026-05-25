@@ -9,12 +9,12 @@ from app.retry.scheduler import retry_scheduler
 from app.models import Worker
 from app.core.telemetry import setup_telemetry
 from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+from prometheus_client import make_asgi_app
 import asyncio
 import logging
 
 logger = logging.getLogger(__name__)
 
-# Initialise tracing before app creation
 setup_telemetry()
 
 
@@ -60,13 +60,15 @@ app = FastAPI(
     lifespan=lifespan
 )
 
-# Instrument FastAPI — auto-creates spans for every HTTP request
 FastAPIInstrumentor.instrument_app(app)
 
 app.include_router(auth.router)
 app.include_router(workflows.router)
 app.include_router(dlq.router)
 app.include_router(workers.router)
+
+# Prometheus metrics endpoint
+app.mount("/metrics", make_asgi_app())
 
 
 @app.get("/health")

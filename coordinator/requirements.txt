@@ -20,3 +20,4 @@ httpx
 alembic
 email-validator
 bcrypt==4.0.1
+prometheus-client

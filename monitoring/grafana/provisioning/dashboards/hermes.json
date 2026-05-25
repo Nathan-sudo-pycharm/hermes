@@ -1,0 +1,75 @@
+{
+  "title": "Hermes Platform",
+  "uid": "hermes-main",
+  "schemaVersion": 36,
+  "version": 1,
+  "refresh": "10s",
+  "panels": [
+    {
+      "id": 1,
+      "title": "Task Execution Rate",
+      "type": "timeseries",
+      "gridPos": { "x": 0, "y": 0, "w": 12, "h": 8 },
+      "targets": [
+        {
+          "expr": "rate(hermes_tasks_total[1m])",
+          "legendFormat": "{{worker_id}} — {{status}}"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "title": "Task Duration p95 (seconds)",
+      "type": "timeseries",
+      "gridPos": { "x": 12, "y": 0, "w": 12, "h": 8 },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, rate(hermes_task_duration_seconds_bucket[1m]))",
+          "legendFormat": "p95 {{worker_id}}"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "title": "Workflow Executions Started",
+      "type": "stat",
+      "gridPos": { "x": 0, "y": 8, "w": 6, "h": 4 },
+      "targets": [
+        {
+          "expr": "hermes_workflow_executions_total",
+          "legendFormat": "Total"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "title": "Tasks by Status (total)",
+      "type": "stat",
+      "gridPos": { "x": 6, "y": 8, "w": 6, "h": 4 },
+      "targets": [
+        {
+          "expr": "sum by (status) (hermes_tasks_total)",
+          "legendFormat": "{{status}}"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "title": "Circuit Breaker State",
+      "type": "stat",
+      "gridPos": { "x": 12, "y": 8, "w": 12, "h": 4 },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "colorMode": "background"
+      },
+      "targets": [
+        {
+          "expr": "hermes_circuit_breaker_state",
+          "legendFormat": "{{worker_id}}"
+        }
+      ]
+    }
+  ],
+  "time": { "from": "now-30m", "to": "now" },
+  "timepicker": {}
+}
