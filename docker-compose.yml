@@ -152,7 +152,7 @@ services:
       - "8003:8001"
     environment:
       WORKER_ID: worker-c
-      WORKER_FAILURE_RATE: "0.4"
+      WORKER_FAILURE_RATE: "1.0"
       WORKER_TASK_DURATION: "1.5"
       KAFKA_BOOTSTRAP_SERVERS: kafka:29092
       KAFKA_TASKS_TOPIC: hermes.tasks
