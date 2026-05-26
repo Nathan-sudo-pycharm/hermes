@@ -14,8 +14,9 @@ from app.auth import get_current_user
 from app.kafka.producer import publish_task
 from app.core.telemetry import get_tracer
 from opentelemetry.propagate import inject
+from opentelemetry import trace as otel_trace
 from app.core.metrics import workflow_executions_total
-
+from sqlalchemy.orm import selectinload
 import uuid
 
 router = APIRouter(prefix="/workflows", tags=["workflows"])
@@ -67,10 +68,7 @@ async def execute_workflow(
     )
     definition = result.scalar_one_or_none()
     if not definition:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Workflow definition not found"
-        )
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Workflow definition not found")
 
     execution = WorkflowExecution(
         definition_id=body.definition_id,
@@ -80,9 +78,9 @@ async def execute_workflow(
     db.add(execution)
     await db.flush()
 
-    first_step     = definition.steps[0]
-    step_index     = 0
-    attempt_number = 1
+    first_step      = definition.steps[0]
+    step_index      = 0
+    attempt_number  = 1
     idempotency_key = f"{execution.id}:{step_index}:{attempt_number}"
 
     task = TaskExecution(
@@ -99,34 +97,43 @@ async def execute_workflow(
     await db.refresh(execution)
     await db.refresh(task)
 
-    # --- OTel: create a span and inject trace context ---
     tracer  = get_tracer()
     carrier = {}
+
     with tracer.start_as_current_span("execute_workflow") as span:
         span.set_attribute("workflow.execution_id", str(execution.id))
         span.set_attribute("workflow.definition",   definition.name)
         span.set_attribute("task.step_name",        first_step["name"])
 
-        # Inject current trace context into carrier dict
-        # This produces {"traceparent": "00-<trace_id>-<span_id>-01"}
         inject(carrier)
 
-    task_message = {
-        "task_execution_id": str(task.id),
-        "execution_id":      str(execution.id),
-        "step_name":         first_step["name"],
-        "step_index":        step_index,
-        "idempotency_key":   idempotency_key,
-        "timeout_seconds":   first_step.get("timeout_seconds", 10),
-        "max_retries":       first_step.get("max_retries", 3),
-        "attempt_number":    attempt_number,
-        "input_payload":     body.input_payload or {},
-        "traceparent":       carrier.get("traceparent"),
-    }
+        ctx = span.get_span_context()
+        execution.trace_id = format(ctx.trace_id, '032x')
+        await db.commit()
 
-    await publish_task(task_message)
+        await publish_task({
+            "task_execution_id": str(task.id),
+            "execution_id":      str(execution.id),
+            "step_name":         first_step["name"],
+            "step_index":        step_index,
+            "idempotency_key":   idempotency_key,
+            "timeout_seconds":   first_step.get("timeout_seconds", 10),
+            "max_retries":       first_step.get("max_retries", 3),
+            "attempt_number":    attempt_number,
+            "input_payload":     body.input_payload or {},
+            "traceparent":       carrier.get("traceparent"),
+        })
+
     workflow_executions_total.inc()
-    return execution
+
+    # Reload with tasks eagerly loaded — prevents MissingGreenlet error
+    # during Pydantic serialisation of the tasks relationship
+    result = await db.execute(
+        select(WorkflowExecution)
+        .where(WorkflowExecution.id == execution.id)
+        .options(selectinload(WorkflowExecution.tasks))
+    )
+    return result.scalar_one()
 
 
 @router.get("/executions", response_model=List[WorkflowExecutionResponse])
@@ -134,7 +141,12 @@ async def list_executions(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    result = await db.execute(select(WorkflowExecution))
+    # selectinload required — tasks is a relationship field in the response schema.
+    # Without it, Pydantic serialisation triggers lazy loading which fails
+    # in async context (MissingGreenlet error).
+    result = await db.execute(
+        select(WorkflowExecution).options(selectinload(WorkflowExecution.tasks))
+    )
     executions = result.scalars().all()
     return executions
 
@@ -146,12 +158,11 @@ async def get_execution(
     current_user: User = Depends(get_current_user)
 ):
     result = await db.execute(
-        select(WorkflowExecution).where(WorkflowExecution.id == execution_id)
+        select(WorkflowExecution)
+        .where(WorkflowExecution.id == execution_id)
+        .options(selectinload(WorkflowExecution.tasks))
     )
     execution = result.scalar_one_or_none()
     if not execution:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Execution not found"
-        )
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Execution not found")
     return execution

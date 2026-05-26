@@ -1,3 +1,5 @@
+from confluent_kafka.admin import AdminClient
+
 from fastapi import FastAPI
 from contextlib import asynccontextmanager
 from sqlalchemy import text, select
@@ -11,23 +13,16 @@ from app.core.telemetry import setup_telemetry
 from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 from prometheus_client import make_asgi_app
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi import Response
 import asyncio
 import logging
 
 logger = logging.getLogger(__name__)
 
-# Initialise OpenTelemetry tracing before the app is created.
-# Must be called at module level so all routes are instrumented.
 setup_telemetry()
 
 
 async def seed_workers():
-    """
-    Inserts the three known workers into the DB on startup.
-    Checks before inserting to avoid duplicate key errors on restart.
-    Workers are statically known from docker-compose.
-    On Day 8+, heartbeats keep these records updated dynamically.
-    """
     known_workers = [
         {"id": "worker-a", "grpc_address": "worker-a:50052"},
         {"id": "worker-b", "grpc_address": "worker-b:50052"},
@@ -46,21 +41,11 @@ async def seed_workers():
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """
-    Runs on startup and shutdown.
-    Order matters:
-      1. Create DB tables (idempotent — safe to run on every restart)
-      2. Seed known workers into the workers table
-      3. Start the gRPC server on port 50051
-      4. Start the retry scheduler as a background asyncio task
-    On shutdown: cancel scheduler, stop gRPC server, close DB connections.
-    """
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
     logger.info("Database tables created")
 
     await seed_workers()
-
     grpc_server    = await start_grpc_server()
     scheduler_task = asyncio.create_task(retry_scheduler())
 
@@ -79,8 +64,6 @@ app = FastAPI(
     lifespan=lifespan
 )
 
-# Allow the Next.js dashboard running on localhost:3000 to call the API.
-# Without this, browsers block cross-origin requests.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:3000"],
@@ -88,34 +71,90 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Auto-instrument FastAPI — creates an OTel span for every HTTP request.
 FastAPIInstrumentor.instrument_app(app)
 
-# Register all routers
 app.include_router(auth.router)
 app.include_router(workflows.router)
 app.include_router(dlq.router)
 app.include_router(workers.router)
 
-# Expose Prometheus metrics at /metrics.
-# Prometheus scrapes this endpoint every 15 seconds.
 app.mount("/metrics", make_asgi_app())
+
+
+def _kafka_check():
+    """
+    Synchronous Kafka connectivity check.
+    Must be run in a thread executor — AdminClient is blocking.
+    """
+    admin = AdminClient({
+        "bootstrap.servers": "kafka:29092",
+        "socket.timeout.ms": 2000
+    })
+    admin.list_topics(timeout=2)
 
 
 @app.get("/health")
 async def health():
     """
-    Health check endpoint.
-    Verifies DB connectivity and returns coordinator version.
+    Liveness probe.
+    Checks DB and Kafka connectivity.
+    Kafka check runs in thread pool to avoid blocking the asyncio event loop.
+    Returns degraded if either dependency is down.
     """
-    db_status = "ok"
+    db_status    = "ok"
+    kafka_status = "ok"
+
     try:
         async with engine.connect() as conn:
             await conn.execute(text("SELECT 1"))
     except Exception as e:
         db_status = f"error: {str(e)}"
+
+    try:
+        loop = asyncio.get_event_loop()
+        await loop.run_in_executor(None, _kafka_check)
+    except Exception as e:
+        kafka_status = f"error: {str(e)}"
+
+    overall = "ok" if db_status == "ok" and kafka_status == "ok" else "degraded"
+
     return {
-        "status":   "ok" if db_status == "ok" else "degraded",
+        "status":   overall,
         "database": db_status,
+        "kafka":    kafka_status,
         "version":  "0.1.0"
     }
+
+
+@app.get("/ready")
+async def ready():
+    """
+    Readiness probe.
+    Returns 200 only if ALL dependencies are healthy.
+    Returns 503 if any dependency is down.
+    Used by container orchestrators to route traffic only to healthy instances.
+    """
+    db_ok    = True
+    kafka_ok = True
+
+    try:
+        async with engine.connect() as conn:
+            await conn.execute(text("SELECT 1"))
+    except Exception:
+        db_ok = False
+
+    try:
+        loop = asyncio.get_event_loop()
+        await loop.run_in_executor(None, _kafka_check)
+    except Exception:
+        kafka_ok = False
+
+    if db_ok and kafka_ok:
+        return {"ready": True}
+
+    return Response(
+        content='{"ready": false, "database": ' + str(db_ok).lower() +
+                ', "kafka": ' + str(kafka_ok).lower() + '}',
+        status_code=503,
+        media_type="application/json"
+    )

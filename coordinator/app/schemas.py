@@ -7,29 +7,21 @@ from datetime import datetime
 # --- Auth schemas ---
 
 class UserRegister(BaseModel):
-    """Request body for POST /auth/register"""
     email: EmailStr
     password: str
-
 
 class UserLogin(BaseModel):
-    """Request body for POST /auth/login"""
     email: EmailStr
     password: str
 
-
 class TokenResponse(BaseModel):
-    """Response body for successful login"""
     access_token: str
     token_type: str = "bearer"
 
-
 class UserResponse(BaseModel):
-    """Public user info returned after registration"""
     id: UUID
     email: str
     created_at: datetime
-
     class Config:
         from_attributes = True
 
@@ -37,37 +29,43 @@ class UserResponse(BaseModel):
 # --- Workflow schemas ---
 
 class WorkflowStep(BaseModel):
-    """One step inside a workflow definition"""
     name: str
     timeout_seconds: int = 10
     max_retries: int = 3
 
-
 class WorkflowDefinitionCreate(BaseModel):
-    """Request body for POST /workflows/definitions"""
     name: str
     steps: List[WorkflowStep]
 
-
 class WorkflowDefinitionResponse(BaseModel):
-    """Response body for workflow definition endpoints"""
     id: UUID
     name: str
     steps: list
     created_at: datetime
-
     class Config:
         from_attributes = True
 
-
 class WorkflowExecuteRequest(BaseModel):
-    """Request body for POST /workflows/execute"""
     definition_id: UUID
     input_payload: Optional[dict] = None
 
+class TaskExecutionResponse(BaseModel):
+    id: UUID
+    step_name: str
+    step_index: int
+    state: str
+    worker_id: Optional[str]
+    attempt_number: int
+    max_attempts: int
+    duration_ms: Optional[int]
+    error_msg: Optional[str]
+    queued_at: datetime
+    started_at: Optional[datetime]
+    completed_at: Optional[datetime]
+    class Config:
+        from_attributes = True
 
 class WorkflowExecutionResponse(BaseModel):
-    """Response body for workflow execution endpoints"""
     id: UUID
     definition_id: UUID
     state: str
@@ -76,6 +74,6 @@ class WorkflowExecutionResponse(BaseModel):
     started_at: datetime
     completed_at: Optional[datetime]
     error_msg: Optional[str]
-
+    tasks: List[TaskExecutionResponse] = []
     class Config:
         from_attributes = True
