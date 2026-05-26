@@ -1,14 +1,6 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
 import { getToken } from "@/lib/token";
 import { getDLQTasks } from "@/lib/api";
 
@@ -35,51 +27,80 @@ export default function DLQPage() {
   }, []);
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-8">
+      {/* Header */}
       <div>
-        <h1 className="text-2xl font-bold">Dead Letter Queue</h1>
-        <p className="text-sm text-muted-foreground mt-1">
-          Tasks that exhausted all retry attempts.
+        <h1 className="text-3xl font-bold text-foreground">
+          Dead Letter Queue
+        </h1>
+        <p className="text-muted-foreground mt-1">
+          Tasks that exhausted all retry attempts
         </p>
       </div>
 
+      {/* Content */}
       {loading ? (
         <p className="text-muted-foreground text-sm">Loading...</p>
       ) : tasks.length === 0 ? (
-        <p className="text-muted-foreground text-sm">
-          No dead-lettered tasks. System is healthy.
-        </p>
+        <div className="text-center py-12 text-muted-foreground">
+          No dead-lettered tasks. Everything is running smoothly!
+        </div>
       ) : (
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Task ID</TableHead>
-              <TableHead>Step</TableHead>
-              <TableHead>Attempts</TableHead>
-              <TableHead>Error</TableHead>
-              <TableHead>Time</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {tasks.map((t) => (
-              <TableRow key={t.id}>
-                <TableCell className="font-mono text-xs">
-                  {t.id.slice(0, 8)}…
-                </TableCell>
-                <TableCell className="text-sm">{t.step_name}</TableCell>
-                <TableCell className="text-sm">{t.attempt_number}</TableCell>
-                <TableCell className="text-xs text-red-400">
-                  {t.error_msg ?? "—"}
-                </TableCell>
-                <TableCell className="text-xs text-muted-foreground">
-                  {t.completed_at
-                    ? new Date(t.completed_at).toLocaleTimeString()
-                    : "—"}
-                </TableCell>
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
+        <div className="bg-card border border-border rounded-lg overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-border bg-secondary/50">
+                  <th className="px-6 py-4 text-left font-semibold text-foreground">
+                    Task ID
+                  </th>
+                  <th className="px-6 py-4 text-left font-semibold text-foreground">
+                    Step
+                  </th>
+                  <th className="px-6 py-4 text-left font-semibold text-foreground">
+                    Attempts
+                  </th>
+                  <th className="px-6 py-4 text-left font-semibold text-foreground">
+                    Error
+                  </th>
+                  <th className="px-6 py-4 text-left font-semibold text-foreground">
+                    Time
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {tasks.map((t) => (
+                  <tr
+                    key={t.id}
+                    className="border-b border-border hover:bg-secondary/30 transition-colors"
+                  >
+                    <td className="px-6 py-4 font-mono text-xs text-muted-foreground">
+                      {t.id.slice(0, 16)}…
+                    </td>
+                    <td className="px-6 py-4 text-foreground font-medium">
+                      {t.step_name}
+                    </td>
+                    <td className="px-6 py-4">
+                      <span className="inline-flex items-center justify-center w-8 h-8 rounded-full bg-secondary/50 text-foreground font-semibold text-sm">
+                        {t.attempt_number}
+                      </span>
+                    </td>
+                    <td className="px-6 py-4">
+                      <span className="text-red-400 text-xs max-w-xs truncate inline-block">
+                        {t.error_msg ?? "—"}
+                      </span>
+                    </td>
+                    <td className="px-6 py-4 text-xs text-muted-foreground whitespace-nowrap">
+                      {t.completed_at
+                        ? new Date(t.completed_at).toLocaleTimeString()
+                        : "—"}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
       )}
     </div>
   );

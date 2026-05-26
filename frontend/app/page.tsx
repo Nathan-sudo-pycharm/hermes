@@ -1,16 +1,19 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import {
-  ChartContainer,
-  ChartTooltip,
-  ChartTooltipContent,
-  ChartLegend,
-  ChartLegendContent,
-} from "@/components/ui/chart";
-import { BarChart, Bar, XAxis, YAxis, PieChart, Pie, Cell } from "recharts";
+  BarChart,
+  Bar,
+  PieChart,
+  Pie,
+  Cell,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ResponsiveContainer,
+} from "recharts";
 import { getToken, setToken } from "@/lib/token";
 import { getExecutions, login } from "@/lib/api";
 
@@ -19,14 +22,10 @@ interface Execution {
   state: string;
 }
 
-const barConfig = {
-  count: { label: "Executions", color: "#6366f1" },
-};
-
-const donutColors: Record<string, string> = {
-  Completed: "#22c55e",
+const COLORS = {
+  Completed: "#10b981",
   Failed: "#ef4444",
-  Running: "#eab308",
+  Running: "#f59e0b",
   Pending: "#64748b",
 };
 
@@ -73,19 +72,22 @@ export default function Home() {
   const running = executions.filter((e) => e.state === "RUNNING").length;
   const pending = executions.filter((e) => e.state === "PENDING").length;
 
-  // Bar chart — executions per state
+  const successPct = total > 0 ? Math.round((completed / total) * 100) : 0;
+  const failedPct = total > 0 ? Math.round((failed / total) * 100) : 0;
+
   const barData = [
-    { state: "Completed", count: completed },
-    { state: "Failed", count: failed },
-    { state: "Running", count: running },
-    { state: "Pending", count: pending },
+    { name: "Completed", value: completed },
+    { name: "Failed", value: failed },
+    { name: "Running", value: running },
+    { name: "Pending", value: pending },
   ];
 
-  // Donut chart — proportions
-  const donutData = barData
-    .filter((d) => d.count > 0)
-    .map((d) => ({ name: d.state, value: d.count }));
+  const donutData = [
+    { name: "Success", value: successPct },
+    { name: "Failed", value: 100 - successPct },
+  ];
 
+  // ── Login ────────────────────────────────────────────────────
   if (!token) {
     return (
       <div className="max-w-sm mx-auto mt-20 space-y-4">
@@ -111,133 +113,155 @@ export default function Home() {
     );
   }
 
+  // ── Dashboard ────────────────────────────────────────────────
   return (
-    <div className="space-y-6">
-      <h1 className="text-2xl font-bold">Dashboard</h1>
+    <div className="space-y-8">
+      {/* Title */}
+      <div>
+        <h1 className="text-3xl font-bold text-foreground">Dashboard</h1>
+        <p className="text-muted-foreground mt-1">
+          Overview of your workflow executions
+        </p>
+      </div>
 
       {/* Stat Cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm text-muted-foreground">
-              Total
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-3xl font-bold">{total}</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm text-muted-foreground">
+        <div className="bg-card border border-border rounded-lg p-6 backdrop-blur-sm">
+          <div className="space-y-3">
+            <p className="text-sm font-medium text-muted-foreground">
+              Total Executions
+            </p>
+            <p className="text-4xl font-bold text-foreground">{total}</p>
+            <p className="text-xs text-muted-foreground">All time</p>
+          </div>
+        </div>
+
+        <div className="bg-card border border-border rounded-lg p-6 backdrop-blur-sm">
+          <div className="space-y-3">
+            <p className="text-sm font-medium text-muted-foreground">
               Completed
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-3xl font-bold text-green-500">{completed}</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm text-muted-foreground">
-              Failed
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-3xl font-bold text-red-500">{failed}</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm text-muted-foreground">
-              Running
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-3xl font-bold text-yellow-500">{running}</p>
-          </CardContent>
-        </Card>
+            </p>
+            <p
+              className="text-4xl font-bold"
+              style={{ color: COLORS.Completed }}
+            >
+              {completed}
+            </p>
+            <p className="text-xs text-muted-foreground">
+              {successPct}% success rate
+            </p>
+          </div>
+        </div>
+
+        <div className="bg-card border border-border rounded-lg p-6 backdrop-blur-sm">
+          <div className="space-y-3">
+            <p className="text-sm font-medium text-muted-foreground">Failed</p>
+            <p className="text-4xl font-bold" style={{ color: COLORS.Failed }}>
+              {failed}
+            </p>
+            <p className="text-xs text-muted-foreground">
+              {failedPct}% failure rate
+            </p>
+          </div>
+        </div>
+
+        <div className="bg-card border border-border rounded-lg p-6 backdrop-blur-sm">
+          <div className="space-y-3">
+            <p className="text-sm font-medium text-muted-foreground">Running</p>
+            <p className="text-4xl font-bold" style={{ color: COLORS.Running }}>
+              {running}
+            </p>
+            <p className="text-xs text-muted-foreground">Currently active</p>
+          </div>
+        </div>
       </div>
 
-      {/* Charts Row */}
-      <div className="grid md:grid-cols-2 gap-4">
+      {/* Charts */}
+      <div className="grid md:grid-cols-2 gap-6">
         {/* Bar Chart */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Executions by State</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <ChartContainer config={barConfig} className="h-[220px] w-full">
-              <BarChart
-                data={barData}
-                margin={{ top: 4, right: 8, bottom: 4, left: -16 }}
-              >
-                <XAxis
-                  dataKey="state"
-                  tick={{ fontSize: 12 }}
-                  axisLine={false}
-                  tickLine={false}
-                />
-                <YAxis
-                  allowDecimals={false}
-                  tick={{ fontSize: 12 }}
-                  axisLine={false}
-                  tickLine={false}
-                />
-                <ChartTooltip content={<ChartTooltipContent />} />
-                <Bar dataKey="count" radius={[4, 4, 0, 0]}>
-                  {barData.map((entry) => (
-                    <Cell
-                      key={entry.state}
-                      fill={donutColors[entry.state] ?? "#6366f1"}
-                    />
-                  ))}
-                </Bar>
-              </BarChart>
-            </ChartContainer>
-          </CardContent>
-        </Card>
+        <div className="bg-card border border-border rounded-lg p-6 backdrop-blur-sm">
+          <h2 className="text-lg font-semibold text-foreground mb-6">
+            Executions by State
+          </h2>
+          <ResponsiveContainer width="100%" height={300}>
+            <BarChart data={barData}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#27272a" />
+              <XAxis dataKey="name" tick={{ fill: "#a1a1a6", fontSize: 12 }} />
+              <YAxis tick={{ fill: "#a1a1a6", fontSize: 12 }} />
+              <Tooltip
+                contentStyle={{
+                  backgroundColor: "#131317",
+                  border: "1px solid #27272a",
+                  borderRadius: "0.5rem",
+                }}
+                labelStyle={{ color: "#fafafa" }}
+              />
+              <Bar dataKey="value" radius={[8, 8, 0, 0]}>
+                {barData.map((entry) => (
+                  <Cell
+                    key={entry.name}
+                    fill={
+                      COLORS[entry.name as keyof typeof COLORS] ?? "#6366f1"
+                    }
+                  />
+                ))}
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
 
         {/* Donut Chart */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Success Rate</CardTitle>
-          </CardHeader>
-          <CardContent className="flex items-center justify-center">
-            <ChartContainer
-              config={Object.fromEntries(
-                donutData.map((d) => [
-                  d.name,
-                  { label: d.name, color: donutColors[d.name] ?? "#6366f1" },
-                ]),
-              )}
-              className="h-[220px] w-full"
-            >
-              <PieChart>
-                <Pie
-                  data={donutData}
-                  dataKey="value"
-                  nameKey="name"
-                  cx="50%"
-                  cy="50%"
-                  innerRadius={60}
-                  outerRadius={90}
-                  paddingAngle={3}
-                >
-                  {donutData.map((entry) => (
-                    <Cell
-                      key={entry.name}
-                      fill={donutColors[entry.name] ?? "#6366f1"}
-                    />
-                  ))}
-                </Pie>
-                <ChartTooltip content={<ChartTooltipContent />} />
-                <ChartLegend content={<ChartLegendContent />} />
-              </PieChart>
-            </ChartContainer>
-          </CardContent>
-        </Card>
+        <div className="bg-card border border-border rounded-lg p-6 backdrop-blur-sm">
+          <h2 className="text-lg font-semibold text-foreground mb-6">
+            Success Rate
+          </h2>
+          <ResponsiveContainer width="100%" height={300}>
+            <PieChart>
+              <Pie
+                data={donutData}
+                cx="50%"
+                cy="50%"
+                innerRadius={80}
+                outerRadius={120}
+                paddingAngle={2}
+                dataKey="value"
+              >
+                <Cell fill={COLORS.Completed} />
+                <Cell fill={COLORS.Failed} />
+              </Pie>
+              <Tooltip
+                contentStyle={{
+                  backgroundColor: "#131317",
+                  border: "1px solid #27272a",
+                  borderRadius: "0.5rem",
+                }}
+                labelStyle={{ color: "#fafafa" }}
+              />
+            </PieChart>
+          </ResponsiveContainer>
+          <div className="flex justify-center gap-6 mt-4 text-sm">
+            <div className="flex items-center gap-2">
+              <div
+                className="w-3 h-3 rounded-full"
+                style={{ backgroundColor: COLORS.Completed }}
+              />
+              <span className="text-muted-foreground">
+                Success: {successPct}%
+              </span>
+            </div>
+            <div className="flex items-center gap-2">
+              <div
+                className="w-3 h-3 rounded-full"
+                style={{ backgroundColor: COLORS.Failed }}
+              />
+              <span className="text-muted-foreground">
+                Failed: {failedPct}%
+              </span>
+            </div>
+          </div>
+        </div>
       </div>
+
       <p className="text-xs text-muted-foreground">
         Auto-refreshes every 10 seconds
       </p>

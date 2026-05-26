@@ -29,10 +29,10 @@ export default function Navbar() {
             <Link
               key={item.id}
               href={item.href}
-              className={`text-sm font-medium transition-colors pb-1 ${
+              className={`text-sm font-medium transition-colors ${
                 pathname === item.href
-                  ? "text-white underline underline-offset-8 decoration-2 decoration-gray-500"
-                  : "text-muted-foreground hover:text-foreground no-underline"
+                  ? "text-foreground border-b-2 border-blue-500 pb-1"
+                  : "text-muted-foreground hover:text-foreground"
               }`}
             >
               {item.label}

@@ -1,18 +1,10 @@
 "use client";
-
 import { useEffect, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
 import { getToken } from "@/lib/token";
 import { getExecutions, getDefinitions, submitExecution } from "@/lib/api";
+import Footer from "@/components/ui/footer";
 
 interface Execution {
   id: string;
@@ -28,21 +20,20 @@ interface Definition {
   name: string;
 }
 
-function StateBadge({ state }: { state: string }) {
-  const variants: Record<string, string> = {
-    COMPLETED: "bg-green-500/20 text-green-400 border-green-500/30",
-    FAILED: "bg-red-500/20 text-red-400 border-red-500/30",
-    RUNNING: "bg-yellow-500/20 text-yellow-400 border-yellow-500/30",
-    PENDING: "bg-slate-500/20 text-slate-400 border-slate-500/30",
-  };
-  return (
-    <span
-      className={`text-xs px-2 py-0.5 rounded border font-medium ${variants[state] ?? variants.PENDING}`}
-    >
-      {state}
-    </span>
-  );
-}
+const getStateStyle = (state: string) => {
+  switch (state) {
+    case "COMPLETED":
+      return "bg-green-500/15 text-green-400 border-green-500/30";
+    case "FAILED":
+      return "bg-red-500/15 text-red-400 border-red-500/30";
+    case "RUNNING":
+      return "bg-yellow-500/15 text-yellow-400 border-yellow-500/30";
+    case "PENDING":
+      return "bg-slate-500/15 text-slate-400 border-slate-500/30";
+    default:
+      return "bg-slate-500/15 text-slate-400 border-slate-500/30";
+  }
+};
 
 export default function ExecutionsPage() {
   const [executions, setExecutions] = useState<Execution[]>([]);
@@ -53,6 +44,7 @@ export default function ExecutionsPage() {
   useEffect(() => {
     const token = getToken();
     if (!token) return;
+
     Promise.all([getExecutions(token), getDefinitions(token)]).then(
       ([execs, defs]) => {
         setExecutions(execs);
@@ -82,54 +74,91 @@ export default function ExecutionsPage() {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-8">
+      {/* Header */}
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold">Executions</h1>
-        <Button onClick={handleSubmit} disabled={submitting}>
+        <div>
+          <h1 className="text-3xl font-bold text-foreground">Executions</h1>
+          <p className="text-muted-foreground mt-1">
+            All workflow executions and their status
+          </p>
+        </div>
+        <Button
+          onClick={handleSubmit}
+          disabled={submitting || definitions.length === 0}
+          variant="outline"
+          className="border-blue-500 text-blue-400 hover:bg-blue-500/10"
+        >
           {submitting ? "Submitting..." : "Submit Execution"}
         </Button>
       </div>
 
+      {/* Table */}
       {loading ? (
         <p className="text-muted-foreground text-sm">Loading...</p>
       ) : executions.length === 0 ? (
         <p className="text-muted-foreground text-sm">No executions yet.</p>
       ) : (
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>ID</TableHead>
-              <TableHead>State</TableHead>
-              <TableHead>Started</TableHead>
-              <TableHead>Completed</TableHead>
-              <TableHead>Error</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {executions.map((e) => (
-              <TableRow key={e.id}>
-                <TableCell className="font-mono text-xs">
-                  {e.id.slice(0, 8)}…
-                </TableCell>
-                <TableCell>
-                  <StateBadge state={e.state} />
-                </TableCell>
-                <TableCell className="text-xs text-muted-foreground">
-                  {new Date(e.started_at).toLocaleTimeString()}
-                </TableCell>
-                <TableCell className="text-xs text-muted-foreground">
-                  {e.completed_at
-                    ? new Date(e.completed_at).toLocaleTimeString()
-                    : "—"}
-                </TableCell>
-                <TableCell className="text-xs text-red-400">
-                  {e.error_msg ?? "—"}
-                </TableCell>
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
+        <div className="bg-card border border-border rounded-lg overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-border bg-secondary/50">
+                  <th className="px-6 py-4 text-left font-semibold text-foreground">
+                    ID
+                  </th>
+                  <th className="px-6 py-4 text-left font-semibold text-foreground">
+                    State
+                  </th>
+                  <th className="px-6 py-4 text-left font-semibold text-foreground">
+                    Started
+                  </th>
+                  <th className="px-6 py-4 text-left font-semibold text-foreground">
+                    Completed
+                  </th>
+                  <th className="px-6 py-4 text-left font-semibold text-foreground">
+                    Error
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {executions.map((e) => (
+                  <tr
+                    key={e.id}
+                    className="border-b border-border hover:bg-secondary/30 transition-colors"
+                  >
+                    <td className="px-6 py-4 font-mono text-xs text-muted-foreground">
+                      {e.id.slice(0, 16)}…
+                    </td>
+                    <td className="px-6 py-4">
+                      <Badge
+                        className={`${getStateStyle(e.state)} border capitalize`}
+                      >
+                        {e.state}
+                      </Badge>
+                    </td>
+                    <td className="px-6 py-4 text-xs text-muted-foreground">
+                      {new Date(e.started_at).toLocaleTimeString()}
+                    </td>
+                    <td className="px-6 py-4 text-xs text-muted-foreground">
+                      {e.completed_at
+                        ? new Date(e.completed_at).toLocaleTimeString()
+                        : "—"}
+                    </td>
+                    <td className="px-6 py-4 text-xs text-red-400">
+                      {e.error_msg ?? "—"}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
       )}
+
+      <p className="text-xs text-muted-foreground">
+        Auto-refreshes every 10 seconds
+      </p>
     </div>
   );
 }
