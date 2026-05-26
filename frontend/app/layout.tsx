@@ -22,7 +22,7 @@ export default function RootLayout({
       >
         <nav className="border-b border-border px-6 py-4 flex items-center gap-8">
           <span className="font-bold text-lg tracking-tight">⚡ Hermes</span>
-          <div className="flex gap-6 text-sm text-muted-foreground">
+          <div className="flex gap-6 text-xl text-muted-foreground">
             <Link href="/" className="hover:text-foreground transition-colors">
               Dashboard
             </Link>

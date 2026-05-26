@@ -3,6 +3,14 @@
 import { useEffect, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import {
+  ChartContainer,
+  ChartTooltip,
+  ChartTooltipContent,
+  ChartLegend,
+  ChartLegendContent,
+} from "@/components/ui/chart";
+import { BarChart, Bar, XAxis, YAxis, PieChart, Pie, Cell } from "recharts";
 import { getToken, setToken } from "@/lib/token";
 import { getExecutions, login } from "@/lib/api";
 
@@ -10,6 +18,17 @@ interface Execution {
   id: string;
   state: string;
 }
+
+const barConfig = {
+  count: { label: "Executions", color: "#6366f1" },
+};
+
+const donutColors: Record<string, string> = {
+  Completed: "#22c55e",
+  Failed: "#ef4444",
+  Running: "#eab308",
+  Pending: "#64748b",
+};
 
 export default function Home() {
   const [token, setTokenState] = useState("");
@@ -52,6 +71,20 @@ export default function Home() {
   const completed = executions.filter((e) => e.state === "COMPLETED").length;
   const failed = executions.filter((e) => e.state === "FAILED").length;
   const running = executions.filter((e) => e.state === "RUNNING").length;
+  const pending = executions.filter((e) => e.state === "PENDING").length;
+
+  // Bar chart — executions per state
+  const barData = [
+    { state: "Completed", count: completed },
+    { state: "Failed", count: failed },
+    { state: "Running", count: running },
+    { state: "Pending", count: pending },
+  ];
+
+  // Donut chart — proportions
+  const donutData = barData
+    .filter((d) => d.count > 0)
+    .map((d) => ({ name: d.state, value: d.count }));
 
   if (!token) {
     return (
@@ -81,6 +114,8 @@ export default function Home() {
   return (
     <div className="space-y-6">
       <h1 className="text-2xl font-bold">Dashboard</h1>
+
+      {/* Stat Cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <Card>
           <CardHeader className="pb-2">
@@ -120,6 +155,86 @@ export default function Home() {
           </CardHeader>
           <CardContent>
             <p className="text-3xl font-bold text-yellow-500">{running}</p>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Charts Row */}
+      <div className="grid md:grid-cols-2 gap-4">
+        {/* Bar Chart */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Executions by State</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <ChartContainer config={barConfig} className="h-[220px] w-full">
+              <BarChart
+                data={barData}
+                margin={{ top: 4, right: 8, bottom: 4, left: -16 }}
+              >
+                <XAxis
+                  dataKey="state"
+                  tick={{ fontSize: 12 }}
+                  axisLine={false}
+                  tickLine={false}
+                />
+                <YAxis
+                  allowDecimals={false}
+                  tick={{ fontSize: 12 }}
+                  axisLine={false}
+                  tickLine={false}
+                />
+                <ChartTooltip content={<ChartTooltipContent />} />
+                <Bar dataKey="count" radius={[4, 4, 0, 0]}>
+                  {barData.map((entry) => (
+                    <Cell
+                      key={entry.state}
+                      fill={donutColors[entry.state] ?? "#6366f1"}
+                    />
+                  ))}
+                </Bar>
+              </BarChart>
+            </ChartContainer>
+          </CardContent>
+        </Card>
+
+        {/* Donut Chart */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Success Rate</CardTitle>
+          </CardHeader>
+          <CardContent className="flex items-center justify-center">
+            <ChartContainer
+              config={Object.fromEntries(
+                donutData.map((d) => [
+                  d.name,
+                  { label: d.name, color: donutColors[d.name] ?? "#6366f1" },
+                ]),
+              )}
+              className="h-[220px] w-full"
+            >
+              <PieChart>
+                <Pie
+                  data={donutData}
+                  dataKey="value"
+                  nameKey="name"
+                  cx="50%"
+                  cy="50%"
+                  innerRadius={60}
+                  outerRadius={90}
+                  paddingAngle={3}
+                >
+                  {donutData.map((entry) => (
+                    <Cell
+                      key={entry.name}
+                      fill={donutColors[entry.name] ?? "#6366f1"}
+                    />
+                  ))}
+                </Pie>
+                <ChartTooltip content={<ChartTooltipContent />} />
+                <ChartLegend content={<ChartLegendContent />} />
+              </PieChart>
+            </ChartContainer>
           </CardContent>
         </Card>
       </div>
