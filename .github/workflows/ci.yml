@@ -48,7 +48,8 @@ jobs:
           python -c "from app.core.metrics import tasks_total, workflow_executions_total; print('Metrics OK')"
         env:
           DATABASE_URL: postgresql://hermes:hermespass@localhost:5432/hermes
-          SECRET_KEY: ci-test-secret-key
+          JWT_SECRET_KEY: ci-test-secret-key-not-real
+          INTERNAL_GRPC_SECRET: ci-test-grpc-secret-not-real
           KAFKA_BOOTSTRAP_SERVERS: localhost:9092
           KAFKA_TASKS_TOPIC: hermes.tasks
 
