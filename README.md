@@ -1,5 +1,7 @@
 # Hermes
 
+[![Hermes CI](https://github.com/Nathan-sudo-pycharm/hermes/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/Nathan-sudo-pycharm/hermes/actions/workflows/ci.yml)
+
 > _Messages delivered. Failures contained. Nothing lost._
 
 ---
