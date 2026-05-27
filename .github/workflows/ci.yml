@@ -1,0 +1,99 @@
+#Defines the GitHub Actions pipeline. Every push to main triggers this. It runs on Ubuntu (GitHub's free runners), installs dependencies for both
+# coordinator and worker, checks imports, and verifies proto and generated files exist.
+
+#Why Ubuntu on GitHub Actions: GitHub provides free Linux runners. Our code runs in Docker on Linux anyway — testing on Linux locally matches production.
+
+name: Hermes CI
+
+# Triggers: runs on every push and pull request to main
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  lint-and-check:
+    name: Import & Structure Check
+    runs-on: ubuntu-latest
+
+    steps:
+      # 1. Check out the repository code
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # 2. Set up Python 3.11 — matches our Docker base image
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      # 3. Install coordinator dependencies
+      - name: Install coordinator dependencies
+        working-directory: coordinator
+        run: pip install -r requirements.txt
+
+      # 4. Install worker dependencies
+      - name: Install worker dependencies
+        working-directory: worker
+        run: pip install -r requirements.txt
+
+      # 5. Check coordinator imports are valid
+      - name: Check coordinator imports
+        working-directory: coordinator
+        run: |
+          python -c "from app.core.config import settings; print('Config OK')"
+          python -c "from app.models import WorkflowExecution, TaskExecution, Worker; print('Models OK')"
+          python -c "from app.schemas import WorkflowExecutionResponse, TaskExecutionResponse; print('Schemas OK')"
+          python -c "from app.core.metrics import tasks_total, workflow_executions_total; print('Metrics OK')"
+        env:
+          DATABASE_URL: postgresql://hermes:hermespass@localhost:5432/hermes
+          SECRET_KEY: ci-test-secret-key
+          KAFKA_BOOTSTRAP_SERVERS: localhost:9092
+          KAFKA_TASKS_TOPIC: hermes.tasks
+
+      # 6. Check worker imports are valid
+      - name: Check worker imports
+        working-directory: worker
+        run: |
+          python -c "from app.core.config import settings; print('Worker config OK')"
+          python -c "from app.executor.task_runner import run_task; print('Task runner OK')"
+        env:
+          WORKER_ID: worker-test
+          WORKER_FAILURE_RATE: "0.0"
+          WORKER_TASK_DURATION: "0.1"
+          KAFKA_BOOTSTRAP_SERVERS: localhost:9092
+          KAFKA_TASKS_TOPIC: hermes.tasks
+          COORDINATOR_GRPC_ADDRESS: localhost:50051
+          ENABLE_DEBUG_ENDPOINTS: "true"
+
+      # 7. Verify proto source files exist
+      - name: Verify proto files
+        run: |
+          test -f proto/hermes.proto && echo "Root proto OK"
+          test -f coordinator/proto/hermes.proto && echo "Coordinator proto OK"
+          test -f worker/proto/hermes.proto && echo "Worker proto OK"
+
+      # 8. Verify generated gRPC stubs exist
+      - name: Verify generated stubs
+        run: |
+          test -f coordinator/generated/hermes_pb2.py && echo "Coordinator pb2 OK"
+          test -f coordinator/generated/hermes_pb2_grpc.py && echo "Coordinator pb2_grpc OK"
+          test -f worker/generated/hermes_pb2.py && echo "Worker pb2 OK"
+          test -f worker/generated/hermes_pb2_grpc.py && echo "Worker pb2_grpc OK"
+
+  docker-build-check:
+    name: Docker Build Check
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # Verify coordinator Dockerfile builds successfully
+      - name: Build coordinator image
+        run: docker build -t hermes-coordinator-ci ./coordinator
+
+      # Verify worker Dockerfile builds successfully
+      - name: Build worker image
+        run: docker build -t hermes-worker-ci ./worker
