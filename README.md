@@ -85,7 +85,7 @@ hermes/
 
 | Document                                          | Description                                     |
 | ------------------------------------------------- | ----------------------------------------------- |
-| [Architecture](docs/ARCHITECTURE.md)              | System design, component breakdown, data flow   |
+| [Architecture](docs/architecture.md)              | System design, component breakdown, data flow   |
 | [ADR-001](docs/adr-001-kafka-vs-redis-streams.md) | Kafka vs Redis Streams                          |
 | [ADR-002](docs/adr-002-grpc-vs-rest-internal.md)  | gRPC vs REST for internal comms                 |
 | [ADR-003](docs/adr-003-circuit-breaker-design.md) | Circuit breaker placement                       |
